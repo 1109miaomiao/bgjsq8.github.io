@@ -1,0 +1,1329 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>加班费精准对账与管理工具</title>
+    <!-- 引入 PDF 导出库 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/lz-string/1.4.4/lz-string.min.js"></script>
+    <style>
+        :root {
+            --primary: #3498db; --primary-dark: #2980b9;
+            --success: #2ecc71; --danger: #e74c3c;
+            --bg: #f0f2f5; --text: #2c3e50;
+            --ot-color: #e67e22; --leave-color: #27ae60;
+            --weekend: #e74c3c; --holiday: #e74c3c;
+            --workday: #7f8c8d;
+        }
+        * { box-sizing: border-box; font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; user-select: none; }
+        body { background-color: var(--bg); color: var(--text); margin: 0; padding: 15px; overflow-x: hidden; }
+        .container { max-width: 1000px; margin: 0 auto; }
+
+        /* 顶部工具栏 */
+        .top-tools { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; flex-wrap: wrap; gap: 10px; }
+        .btn-group { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+        .tool-btn { background: #fff; border: 1px solid #ddd; color: #333; padding: 8px 14px; border-radius: 8px; font-size: 14px; cursor: pointer; box-shadow: 0 2px 6px rgba(0,0,0,0.04); display: flex; align-items: center; gap: 6px; transition: 0.2s; }
+        .tool-btn:hover { background: #f8f9fa; }
+        .tool-btn.primary { background: var(--primary); color: white; border-color: var(--primary); }
+        .tool-btn.primary:hover { background: var(--primary-dark); }
+        .tool-btn.danger { color: var(--danger); border-color: #f5c6cb; background: #fff5f5; }
+        .tool-btn.icon-only { width: 36px; height: 36px; padding: 0; justify-content: center; border-radius: 50%; font-size: 18px; }
+
+        /* 视图容器 */
+        .view-wrapper { position: relative; }
+        
+        /* 左右切换箭头 */
+        .nav-arrow { 
+            position: absolute; top: 50%; transform: translateY(-50%); 
+            width: 44px; height: 44px; background: rgba(255,255,255,0.9); 
+            border-radius: 50%; box-shadow: 0 4px 12px rgba(0,0,0,0.15); 
+            display: none; align-items: center; justify-content: center;
+            font-size: 24px; color: var(--primary); cursor: pointer; z-index: 10;
+            border: 1px solid #eee; transition: 0.2s;
+        }
+        .nav-arrow:hover { background: #fff; color: var(--primary-dark); transform: translateY(-50%) scale(1.1); }
+        .nav-arrow.left { left: -10px; }
+        .nav-arrow.right { right: -10px; }
+
+        /* 日历容器 */
+        .calendar-wrapper { display: block; width: 100%; transition: 0.3s; }
+        
+        /* 横向布局 */
+        .calendar-wrapper.horizontal { 
+            display: flex; overflow-x: auto; scroll-snap-type: x mandatory; gap: 20px; padding-bottom: 20px;
+            -webkit-overflow-scrolling: touch; scroll-behavior: smooth;
+        }
+        .calendar-wrapper.horizontal::-webkit-scrollbar { height: 8px; }
+        .calendar-wrapper.horizontal::-webkit-scrollbar-thumb { background: #ccc; border-radius: 4px; }
+        .calendar-wrapper.horizontal .month-card { 
+            flex: 0 0 100%; scroll-snap-align: center; margin-bottom: 0;
+            max-width: 100%; 
+        }
+
+        /* 月份卡片 */
+        .month-card { 
+            background: #fff; border-radius: 16px; margin-bottom: 25px; 
+            box-shadow: 0 6px 20px rgba(0,0,0,0.06); overflow: hidden; 
+            transition: transform 0.2s;
+        }
+        .month-title { 
+            background: linear-gradient(135deg, #2c3e50, #34495e); 
+            color: white; padding: 15px 20px; 
+            font-size: 18px; font-weight: bold; 
+            display: flex; justify-content: space-between; align-items: center; 
+        }
+        .title-actions { display: flex; gap: 8px; }
+        .title-btn { background: rgba(255,255,255,0.15); border: none; color: white; padding: 4px 10px; border-radius: 6px; font-size: 12px; cursor: pointer; transition: 0.2s; }
+        .title-btn:hover { background: rgba(255,255,255,0.3); }
+        .title-btn.del { color: #ffb8b8; }
+        .title-btn.del:hover { background: rgba(231, 76, 60, 0.4); }
+        
+        /* 日历格子 */
+        .calendar { padding: 15px; }
+        .weekdays { display: grid; grid-template-columns: repeat(7, 1fr); text-align: center; font-size: 13px; color: #7f8c8d; margin-bottom: 10px; font-weight: bold; }
+        .weekdays span:nth-child(1), .weekdays span:nth-child(7) { color: var(--weekend); }
+        .days { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
+        
+        .day-cell { 
+            height: 60px; 
+            display: flex; flex-direction: column; align-items: center; justify-content: flex-start; padding-top: 6px;
+            border-radius: 10px; font-size: 16px; background: #f8f9fa; cursor: pointer; 
+            position: relative; transition: 0.1s; border: 1px solid transparent;
+        }
+        .day-cell:hover { border-color: #ddd; background: #f1f2f6; }
+        .day-cell.empty { background: transparent; cursor: default; border: none; }
+        .day-cell.next-cycle { background: #f4f7fc; color: #5a6c8a; } 
+        
+        .day-cell.weekend { color: var(--weekend); font-weight: bold; }
+        .day-cell.holiday { color: var(--holiday); font-weight: bold; }
+        .day-cell.holiday-work { color: var(--workday); font-weight: bold; }
+        
+        /* 节日和调休标签 */
+        .day-tag { position: absolute; top: 2px; right: 4px; font-size: 10px; color: white; padding: 1px 3px; border-radius: 4px; transform: scale(0.8); }
+        .tag-off { background: var(--danger); }
+        .tag-work { background: var(--workday); }
+        .festival-name { font-size: 10px; color: var(--danger); margin-top: 2px; font-weight: normal; transform: scale(0.9); white-space: nowrap;}
+
+        .day-cell.type-ot { background: var(--ot-color); color: white; font-weight: bold; box-shadow: 0 3px 8px rgba(230,126,34,0.3); border-color: var(--ot-color); }
+        .day-cell.type-ot::after { content: '加班'; font-size: 10px; position: absolute; bottom: 3px; opacity: 0.9; }
+        .day-cell.type-ot .festival-name { color: white; }
+        
+        .day-cell.type-leave { background: var(--leave-color); color: white; font-weight: bold; box-shadow: 0 3px 8px rgba(39,174,96,0.3); border-color: var(--leave-color); }
+        .day-cell.type-leave::after { content: '调休'; font-size: 10px; position: absolute; bottom: 3px; opacity: 0.9; }
+        .day-cell.type-leave .festival-name { color: white; }
+        
+        .day-hours { font-size: 12px; font-weight: normal; position: absolute; bottom: 16px;}
+
+        /* 内嵌对账区域 */
+        .recon-panel { background: #fafbfc; border-top: 1px dashed #e0e0e0; padding: 15px 20px; }
+        .recon-empty { text-align: center; color: #95a5a6; font-size: 13px; padding: 10px; }
+        .recon-header { display: flex; justify-content: space-between; font-size: 13px; font-weight: bold; color: #333; margin-bottom: 10px; border-left: 4px solid var(--primary); padding-left: 8px; }
+        .recon-header span { color: var(--danger); font-weight: normal; }
+        .recon-details { font-size: 13px; color: #555; margin-bottom: 12px; line-height: 1.6; background: #fff; padding: 10px; border-radius: 8px; border: 1px solid #eee; }
+        .data-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 8px; }
+        .data-cell { background: #fff; padding: 10px; border-radius: 8px; border: 1px solid #eee; font-size: 13px; display: flex; justify-content: space-between; align-items: center; }
+        .data-cell .label { color: #7f8c8d; }
+        .data-cell .value { font-size: 15px; font-weight: bold; }
+        .recon-row { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
+        .recon-row span { font-size: 13px; white-space: nowrap; color: #555; font-weight: bold;}
+        .recon-row input { flex: 1; padding: 8px 12px; border: 1px solid #ccc; border-radius: 6px; font-size: 14px; text-align: center; transition: 0.2s; }
+        .recon-row input:focus { border-color: var(--primary); outline: none; box-shadow: 0 0 5px rgba(52,152,219,0.2); }
+        .recon-msg { font-weight: bold; text-align: center; padding: 6px 10px; border-radius: 6px; font-size: 13px; white-space: nowrap; display: none; }
+        .recon-ok { color: #155724; background: #d4edda; }
+        .recon-danger { color: #fff; background: var(--danger); }
+        .recon-warn { color: #856404; background: #fff3cd; }
+        .reversed-row { background: #e3f2fd; border-radius: 8px; padding: 10px; margin-top: 12px; display: flex; align-items: center; justify-content: space-between; border: 1px solid #bbdefb; }
+        .reversed-val { font-size: 15px; font-weight: bold; color: #1565c0; }
+        .reversed-msg { font-size: 12px; font-weight: bold; padding: 4px 8px; border-radius: 4px; }
+        .rev-ok { color: #2e7d32; background: #c8e6c9; }
+        .rev-bad { color: #c62828; background: #ffcdd2; }
+
+        /* 弹窗通用 */
+        .overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.6); z-index: 1000; display: none; backdrop-filter: blur(2px); }
+        .overlay.active { display: block; }
+        .modal { position: fixed; bottom: -100%; left: 0; right: 0; background: #fff; border-radius: 20px 20px 0 0; z-index: 1001; padding: 25px 20px; transition: bottom 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); max-width: 800px; margin: 0 auto; max-height: 85vh; overflow-y: auto; }
+        .modal.active { bottom: 0; }
+        .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+        .modal-title { font-size: 20px; font-weight: bold; color: #333; }
+        .modal-subtitle { font-size: 14px; color: var(--ot-color); margin-bottom: 20px; font-weight: bold; }
+        .close-btn { background: #f0f2f5; border: none; width: 32px; height: 32px; border-radius: 50%; font-size: 20px; color: #7f8c8d; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+        
+        /* 记录弹窗专属 */
+        .tabs { display: flex; background: #f0f2f5; border-radius: 12px; padding: 5px; margin-bottom: 20px; }
+        .tab { flex: 1; text-align: center; padding: 12px; border-radius: 8px; font-weight: bold; color: #7f8c8d; cursor: pointer; transition: 0.2s; }
+        .tab.active-ot { background: #fff; color: var(--ot-color); box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+        .tab.active-leave { background: #fff; color: var(--leave-color); box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+        .rate-selector { display: none; gap: 12px; margin-bottom: 20px; }
+        .rate-selector.active { display: flex; }
+        .btn-rate { flex: 1; padding: 12px; border: 2px solid #ecf0f1; background: #fff; border-radius: 10px; font-size: 15px; cursor: pointer; font-weight: bold; color: #7f8c8d; transition: 0.2s; }
+        .btn-rate.active { border-color: var(--ot-color); color: var(--ot-color); background: #fdf2e9; }
+        .quick-hours { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin-bottom: 20px; }
+        .btn-hour { background: #f0f2f5; border: none; padding: 15px 0; border-radius: 10px; font-size: 16px; font-weight: bold; color: #333; cursor: pointer; transition: 0.1s; }
+        .btn-hour:active { background: #d1d8e0; transform: scale(0.95); }
+        .custom-hour-area { display: flex; align-items: center; gap: 15px; margin-bottom: 25px; }
+        .custom-hour-area input { flex: 1; padding: 15px; font-size: 18px; border: 2px solid #ecf0f1; border-radius: 10px; text-align: center; font-weight: bold; }
+        .custom-hour-area input:focus { border-color: var(--primary); outline: none; }
+        .modal-actions { display: flex; gap: 12px; flex-wrap: wrap;}
+        .btn-action { flex: 1; min-width: 100px; padding: 15px; border: none; border-radius: 12px; font-size: 16px; font-weight: bold; cursor: pointer; transition: 0.2s; }
+        .btn-cancel { background: #f0f2f5; color: #333; }
+        .btn-save { background: var(--primary); color: white; box-shadow: 0 4px 12px rgba(52,152,219,0.3); }
+        .btn-delete { background: #ffebee; color: var(--danger); display: none; }
+
+        /* 表单设置样式 */
+        .form-group { margin-bottom: 20px; }
+        .form-group label { display: block; font-size: 14px; font-weight: bold; margin-bottom: 8px; color: #555; }
+        .form-group input[type="number"], .form-group input[type="month"], .form-group select { width: 100%; padding: 12px; border: 2px solid #ecf0f1; border-radius: 10px; font-size: 15px; transition: 0.2s; }
+        .form-group input:focus, .form-group select:focus { border-color: var(--primary); outline: none; }
+        .form-group-row { display: flex; gap: 15px; }
+        .form-group-row .form-group { flex: 1; }
+        
+        /* 报告内容 */
+        .report-content { font-size: 13px; line-height: 1.6; color: #333; white-space: pre-wrap; background: #f9f9f9; padding: 20px; border-radius: 12px; border: 1px solid #eee; margin-bottom: 20px; font-family: monospace; max-height: 50vh; overflow-y: auto; }
+        #qrcode-container { display: flex; justify-content: center; margin: 20px 0; }
+        #qrcode-container img { border: 8px solid #fff; box-shadow: 0 4px 15px rgba(0,0,0,0.1); border-radius: 12px; }
+        #pdf-export-container { position: fixed; top: 0; left: 0; z-index: -9999; opacity: 0; pointer-events: none; }
+        .export-menu { display: flex; flex-direction: column; gap: 10px; margin-top: 15px;}
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <!-- 顶部工具栏 -->
+    <div class="top-tools">
+        <div class="btn-group">
+            <button class="tool-btn" onclick="toggleLayout()" id="layoutBtn">🔄 切换横排</button>
+        </div>
+        <div class="btn-group">
+            <button class="tool-btn primary" onclick="openReportModal()">📊 对账总报告</button>
+            <button class="tool-btn" onclick="openExportChoice()">📥 导出全部</button>
+            <button class="tool-btn" onclick="openShareModal()">🔗 分享</button>
+            <button class="tool-btn icon-only" onclick="openSettingsModal()">⚙️</button>
+        </div>
+    </div>
+
+    <!-- 视图容器 -->
+    <div class="view-wrapper">
+        <div class="nav-arrow left" id="navLeft" onclick="scrollCalendar(-1)">&lt;</div>
+        <div class="nav-arrow right" id="navRight" onclick="scrollCalendar(1)">&gt;</div>
+        <div class="calendar-wrapper" id="calendarWrapper"></div>
+    </div>
+</div>
+
+<!-- 遮罩 -->
+<div class="overlay" id="overlay" onclick="closeAllModals()"></div>
+
+<!-- 记录弹窗 -->
+<div class="modal" id="recordModal">
+    <div class="modal-header">
+        <div>
+            <div class="modal-title" id="modalDate">日期</div>
+            <div class="modal-subtitle" id="modalCycleHint">属于</div>
+        </div>
+        <button class="close-btn" onclick="closeAllModals()">×</button>
+    </div>
+    <div class="tabs">
+        <div class="tab" id="tabOt" onclick="switchTab('ot')">加班</div>
+        <div class="tab" id="tabLeave" onclick="switchTab('leave')">调休</div>
+    </div>
+    <div class="rate-selector" id="rateSelector">
+        <button class="btn-rate active" onclick="selectRate(1.5)" id="btnRate1">平时/周末</button>
+        <button class="btn-rate" onclick="selectRate(3)" id="btnRate3">法定节假日</button>
+    </div>
+    <div class="quick-hours">
+        <button class="btn-hour" onclick="setHours(1)">1 时</button>
+        <button class="btn-hour" onclick="setHours(2)">2 时</button>
+        <button class="btn-hour" onclick="setHours(3)">3 时</button>
+        <button class="btn-hour" onclick="setHours(4)">4 时</button>
+        <button class="btn-hour" onclick="setHours(8)">8 时</button>
+    </div>
+    <div class="custom-hour-area">
+        <input type="number" id="inputHours" step="0.5" min="0" placeholder="输入自定义时长" inputmode="decimal">
+    </div>
+    <div class="modal-actions">
+        <button class="btn-action btn-delete" id="btnDelete" onclick="deleteRecord()">删除</button>
+        <button class="btn-action btn-cancel" onclick="closeAllModals()">取消</button>
+        <button class="btn-action btn-save" onclick="saveRecord()">保存</button>
+    </div>
+</div>
+
+<!-- 单月导出选择弹窗 -->
+<div class="modal" id="monthExportModal">
+    <div class="modal-header">
+        <div class="modal-title">📥 导出本月数据</div>
+        <button class="close-btn" onclick="closeAllModals()">×</button>
+    </div>
+    <div id="monthExportTitle" style="text-align:center; margin-bottom:15px; font-weight:bold; color:var(--primary); font-size:16px;"></div>
+    <div class="export-menu">
+        <button class="btn-action btn-save" style="background:#3498db; width:100%;" onclick="exportSingleMonthTxt()">📄 导出为 TXT 文件</button>
+        <button class="btn-action btn-save" style="background:#e74c3c; width:100%;" onclick="exportSingleMonthPdf(this)">📕 导出为 PDF 图片</button>
+    </div>
+</div>
+
+<!-- 系统设置弹窗 -->
+<div class="modal" id="settingsModal">
+    <div class="modal-header">
+        <div class="modal-title">⚙️ 系统设置</div>
+        <button class="close-btn" onclick="closeAllModals()">×</button>
+    </div>
+    <div class="form-group-row">
+        <div class="form-group">
+            <label>平时加班倍数</label>
+            <input type="number" id="setRate1" step="0.1" value="1.5">
+        </div>
+        <div class="form-group">
+            <label>节假日加班倍数</label>
+            <input type="number" id="setRate3" step="0.1" value="3">
+        </div>
+    </div>
+    <div class="form-group-row">
+        <div class="form-group">
+            <label>延后几个月发加班费</label>
+            <input type="number" id="setPayCycle" step="1" value="2">
+        </div>
+        <div class="form-group">
+            <label>每月发薪日 (号)</label>
+            <input type="number" id="setPayDay" step="1" value="8">
+        </div>
+    </div>
+    <div class="form-group">
+        <label>一周开始日</label>
+        <select id="setStartDay">
+            <option value="1">周一 (默认)</option>
+            <option value="0">周日</option>
+        </select>
+    </div>
+    <div class="form-group-row">
+        <div class="form-group">
+            <label>记录起始月份</label>
+            <input type="month" id="setStartMonth" value="2025-11">
+        </div>
+        <div class="form-group">
+            <label>记录结束月份</label>
+            <input type="month" id="setEndMonth" value="2026-12">
+        </div>
+    </div>
+    <div class="modal-actions">
+        <button class="btn-action btn-cancel" onclick="closeAllModals()">取消</button>
+        <button class="btn-action btn-save" onclick="saveSettings()">保存设置</button>
+    </div>
+</div>
+
+<!-- 导出全部选择弹窗 -->
+<div class="modal" id="exportChoiceModal">
+    <div class="modal-header">
+        <div class="modal-title">📥 导出全部数据</div>
+        <button class="close-btn" onclick="closeAllModals()">×</button>
+    </div>
+    <div style="text-align:center; margin-bottom:15px; font-size:15px; color:#555;">请选择您要导出的文件格式：</div>
+    <div class="export-menu">
+        <button class="btn-action btn-save" style="background:#3498db; width:100%;" onclick="exportAllTxt()">📄 导出为 TXT 文件</button>
+        <button class="btn-action btn-save" style="background:#e74c3c; width:100%;" onclick="exportAllPdf()">📕 导出为 PDF 文件</button>
+    </div>
+</div>
+
+<!-- 总报告弹窗 -->
+<div class="modal" id="reportModal">
+    <div class="modal-header">
+        <div class="modal-title">📊 详细加班对账总报告</div>
+        <button class="close-btn" onclick="closeAllModals()">×</button>
+    </div>
+    <div class="report-content" id="reportText">生成中...</div>
+    <div class="modal-actions">
+        <button class="btn-action btn-cancel" onclick="downloadReportTxt()">下载(TXT)</button>
+        <button class="btn-action btn-save" style="background:#e74c3c;" onclick="downloadReportPdf(this)">下载原图(PDF)</button>
+        <button class="btn-action btn-save" onclick="copyReport()">复制文本</button>
+    </div>
+</div>
+
+<!-- 分享弹窗 -->
+<div class="modal" id="shareModal">
+    <div class="modal-header">
+        <div class="modal-title">🔗 分享与同步</div>
+        <button class="close-btn" onclick="closeAllModals()">×</button>
+    </div>
+    <div style="font-size:14px; color:#666; margin-bottom:15px; text-align:center;">
+        直接扫码同步或复制链接发送，覆盖目标设备数据。
+    </div>
+    <div id="qrcode-container"></div>
+    <div class="modal-actions">
+        <button class="btn-action btn-save" onclick="copyShareLink()">📋 复制分享链接</button>
+    </div>
+</div>
+
+<script>
+    // --- 内置节假日与调休数据字典 (精简版，去除非法定节日) ---
+    const HOLIDAY_DATA = {
+        // 2025年
+        "2025-01-01": { name: "元旦", isOff: true, is3x: true },
+        "2025-01-28": { name: "春节", isOff: true, is3x: true },
+        "2025-01-29": { name: "春节", isOff: true, is3x: true },
+        "2025-01-30": { name: "春节", isOff: true, is3x: true },
+        "2025-01-31": { isOff: true },
+        "2025-02-01": { isOff: true },
+        "2025-02-02": { isOff: true },
+        "2025-02-03": { isOff: true },
+        "2025-02-04": { isOff: true },
+        "2025-01-26": { isWork: true },
+        "2025-02-08": { isWork: true },
+        "2025-04-04": { name: "清明", isOff: true, is3x: true },
+        "2025-04-05": { isOff: true },
+        "2025-04-06": { isOff: true },
+        "2025-05-01": { name: "劳动节", isOff: true, is3x: true },
+        "2025-05-02": { name: "劳动节", isOff: true, is3x: true },
+        "2025-05-03": { isOff: true },
+        "2025-05-04": { isOff: true },
+        "2025-05-05": { isOff: true },
+        "2025-04-27": { isWork: true },
+        "2025-05-31": { name: "端午", isOff: true, is3x: true },
+        "2025-06-01": { isOff: true },
+        "2025-06-02": { isOff: true },
+        "2025-10-01": { name: "国庆", isOff: true, is3x: true },
+        "2025-10-02": { name: "国庆", isOff: true, is3x: true },
+        "2025-10-03": { name: "国庆", isOff: true, is3x: true },
+        "2025-10-04": { isOff: true },
+        "2025-10-05": { isOff: true },
+        "2025-10-06": { name: "中秋", isOff: true, is3x: true },
+        "2025-10-07": { isOff: true },
+        "2025-10-08": { isOff: true },
+        "2025-09-28": { isWork: true },
+        "2025-10-11": { isWork: true },
+        
+        // 2026年 (国务院官方真实数据)
+        "2026-01-01": { name: "元旦", isOff: true, is3x: true },
+        "2026-01-02": { isOff: true },
+        "2026-01-03": { isOff: true },
+        "2026-01-04": { isWork: true },
+        "2026-02-14": { isWork: true },
+        "2026-02-15": { isOff: true },
+        "2026-02-16": { isOff: true },
+        "2026-02-17": { name: "春节", isOff: true, is3x: true },
+        "2026-02-18": { name: "春节", isOff: true, is3x: true },
+        "2026-02-19": { name: "春节", isOff: true, is3x: true },
+        "2026-02-20": { isOff: true },
+        "2026-02-21": { isOff: true },
+        "2026-02-22": { isOff: true },
+        "2026-02-23": { isOff: true },
+        "2026-02-28": { isWork: true },
+        "2026-04-04": { name: "清明", isOff: true, is3x: true },
+        "2026-04-05": { isOff: true },
+        "2026-04-06": { isOff: true },
+        "2026-05-01": { name: "劳动节", isOff: true, is3x: true },
+        "2026-05-02": { name: "劳动节", isOff: true, is3x: true },
+        "2026-05-03": { isOff: true },
+        "2026-05-04": { isOff: true },
+        "2026-05-05": { isOff: true },
+        "2026-05-09": { isWork: true },
+        "2026-06-19": { name: "端午", isOff: true, is3x: true },
+        "2026-06-20": { isOff: true },
+        "2026-06-21": { isOff: true },
+        "2026-09-20": { isWork: true },
+        "2026-09-25": { name: "中秋", isOff: true, is3x: true },
+        "2026-09-26": { isOff: true },
+        "2026-09-27": { isOff: true },
+        "2026-10-01": { name: "国庆", isOff: true, is3x: true },
+        "2026-10-02": { name: "国庆", isOff: true, is3x: true },
+        "2026-10-03": { name: "国庆", isOff: true, is3x: true },
+        "2026-10-04": { isOff: true },
+        "2026-10-05": { isOff: true },
+        "2026-10-06": { isOff: true },
+        "2026-10-07": { isOff: true },
+        "2026-10-10": { isWork: true }
+    };
+
+    // --- 全局状态与数据 ---
+    let scheduleData = {};
+    let companyData = {};
+    let settings = {
+        layout: 'vertical',
+        rate1: 1.5,
+        rate3: 3,
+        payCycle: 2,
+        payDay: 8,
+        startDay: 1,
+        rangeStart: '2025-11',
+        rangeEnd: '2026-12'
+    };
+    
+    let currentEditDate = '';
+    let currentType = 'ot'; 
+    let currentRate = 1.5;
+    let currentExportMonth = '';
+
+    const getHourlyRates = () => {
+        const base = 6000 / 21.75 / 8;
+        return { r1: base * settings.rate1, r3: base * settings.rate3 };
+    };
+
+    function getMonthList() {
+        const list = [];
+        if (!settings.rangeStart || !settings.rangeEnd) return list;
+        let [sy, sm] = settings.rangeStart.split('-').map(Number);
+        let [ey, em] = settings.rangeEnd.split('-').map(Number);
+        let cy = sy, cm = sm;
+        while (cy < ey || (cy === ey && cm <= em)) {
+            list.push(`${cy}-${String(cm).padStart(2, '0')}`);
+            cm++;
+            if (cm > 12) { cy++; cm = 1; }
+        }
+        return list;
+    }
+
+    // --- 结算规则 ---
+    function getCycleMonth(dateStr) {
+        let [y, m, d] = dateStr.split('-').map(Number);
+        if (d >= 26) { m += 1; if (m > 12) { y++; m = 1; } }
+        return `${y}-${String(m).padStart(2, '0')}`;
+    }
+
+    function getCycleDetails(cycleMonthStr) {
+        let [y, m] = cycleMonthStr.split('-').map(Number);
+        const end = `${y}-${String(m).padStart(2, '0')}-25`;
+        let startY = y, startM = m - 1;
+        if (startM === 0) { startY--; startM = 12; }
+        const start = `${startY}-${String(startM).padStart(2, '0')}-26`;
+        
+        let payY = y, payM = m + settings.payCycle;
+        while (payM > 12) { payY++; payM -= 12; }
+        const payStr = `${payY}年${payM}月${settings.payDay}日`;
+        
+        let salaryMonth = m + settings.payCycle - 1; 
+        let salaryY = y;
+        while (salaryMonth > 12) { salaryY++; salaryMonth -= 12; }
+
+        return { start, end, payStr, name: `${m}月加班费`, salaryStr: `${salaryY}年${salaryMonth}月工资` };
+    }
+
+    // --- UI 渲染 ---
+    function initCalendars() {
+        const container = document.getElementById('calendarWrapper');
+        container.innerHTML = '';
+        const list = getMonthList();
+        const weekdays = settings.startDay === 1 ? ['一','二','三','四','五','六','日'] : ['日','一','二','三','四','五','六'];
+
+        list.forEach(month => {
+            const card = document.createElement('div');
+            card.className = 'month-card';
+            card.id = `card-${month}`;
+            
+            let wdHtml = '';
+            weekdays.forEach(w => { wdHtml += `<span>${w}</span>`; });
+
+            card.innerHTML = `
+                <div class="month-title">
+                    <span>${month.replace('-', '年')}月</span>
+                    <div class="title-actions">
+                        <button class="title-btn" onclick="event.stopPropagation(); openMonthExportModal('${month}')">导出</button>
+                        <button class="title-btn del" onclick="event.stopPropagation(); deleteMonthData('${month}')">删除</button>
+                    </div>
+                </div>
+                <div class="calendar">
+                    <div class="weekdays">${wdHtml}</div>
+                    <div class="days" id="days-${month}"></div>
+                </div>
+                <div class="recon-panel" id="recon-${month}"></div>
+            `;
+            container.appendChild(card);
+            renderMonthDays(month);
+        });
+        
+        updateReconPanels(); 
+    }
+
+    function renderMonthDays(monthStr) {
+        const [year, month] = monthStr.split('-').map(Number);
+        const daysContainer = document.getElementById(`days-${monthStr}`);
+        const firstDay = new Date(year, month - 1, 1).getDay();
+        const daysInMonth = new Date(year, month, 0).getDate();
+
+        let emptyCells = (firstDay - settings.startDay + 7) % 7;
+        for (let i = 0; i < emptyCells; i++) {
+            daysContainer.innerHTML += `<div class="day-cell empty"></div>`;
+        }
+
+        for (let i = 1; i <= daysInMonth; i++) {
+            const dateStr = `${monthStr}-${String(i).padStart(2, '0')}`;
+            const cell = document.createElement('div');
+            cell.className = 'day-cell';
+            cell.id = `cell-${dateStr}`;
+            if (i >= 26) cell.classList.add('next-cycle');
+
+            const dayOfWeek = new Date(year, month - 1, i).getDay();
+            const hInfo = HOLIDAY_DATA[dateStr];
+
+            if (hInfo && hInfo.isWork) {
+                cell.classList.add('holiday-work');
+            } else if (hInfo && hInfo.isOff) {
+                cell.classList.add('holiday');
+            } else if (dayOfWeek === 0 || dayOfWeek === 6) {
+                cell.classList.add('weekend');
+            }
+
+            let innerHTML = `<span>${i}</span>`;
+            
+            if (hInfo && hInfo.isOff) innerHTML += `<span class="day-tag tag-off">休</span>`;
+            if (hInfo && hInfo.isWork) innerHTML += `<span class="day-tag tag-work">班</span>`;
+            
+            // 只有法定3倍工资日才显示节日名字
+            if (hInfo && hInfo.is3x && hInfo.name) {
+                innerHTML += `<div class="festival-name">${hInfo.name}</div>`;
+            }
+
+            const record = scheduleData[dateStr];
+            if (record && record.hours > 0) {
+                cell.classList.add(record.type === 'ot' ? 'type-ot' : 'type-leave');
+                innerHTML += `<div class="day-hours">${record.hours}h</div>`;
+            }
+            cell.innerHTML = innerHTML;
+            cell.onclick = () => openRecordModal(dateStr);
+            daysContainer.appendChild(cell);
+        }
+    }
+
+    // --- 记录弹窗 ---
+    function openRecordModal(dateStr) {
+        currentEditDate = dateStr;
+        const record = scheduleData[dateStr];
+        const hInfo = HOLIDAY_DATA[dateStr];
+        const is3x = hInfo && hInfo.is3x;
+        
+        if (record) {
+            currentType = record.type;
+            currentRate = record.rate;
+        } else {
+            currentType = 'ot';
+            currentRate = is3x ? settings.rate3 : settings.rate1;
+        }
+        
+        const cycleMonth = getCycleMonth(dateStr);
+        const cycleInfo = getCycleDetails(cycleMonth);
+
+        let dateTitle = `${dateStr.replace(/-/g, '年').replace(/年(\d+)$/, '月$1日')}`;
+        if (is3x && hInfo.name) dateTitle += ` (${hInfo.name})`;
+
+        document.getElementById('modalDate').textContent = dateTitle;
+        document.getElementById('modalCycleHint').textContent = `归属【${cycleInfo.name}】 随 ${cycleInfo.salaryStr} 发放`;
+        
+        document.getElementById('btnRate1').textContent = `平时/周末 (${settings.rate1}倍)`;
+        document.getElementById('btnRate3').textContent = `法定节假日 (${settings.rate3}倍)`;
+
+        switchTab(currentType);
+        document.getElementById('inputHours').value = record ? record.hours : '';
+        document.getElementById('btnDelete').style.display = record ? 'block' : 'none';
+
+        document.getElementById('overlay').classList.add('active');
+        document.getElementById('recordModal').classList.add('active');
+    }
+
+    function switchTab(type) {
+        currentType = type;
+        document.getElementById('tabOt').className = type === 'ot' ? 'tab active-ot' : 'tab';
+        document.getElementById('tabLeave').className = type === 'leave' ? 'tab active-leave' : 'tab';
+        document.getElementById('rateSelector').className = type === 'ot' ? 'rate-selector active' : 'rate-selector';
+        if (type === 'ot') selectRate(currentRate);
+    }
+
+    function selectRate(rate) {
+        currentRate = rate;
+        const btns = document.querySelectorAll('.btn-rate');
+        btns[0].className = rate === settings.rate1 ? 'btn-rate active' : 'btn-rate';
+        btns[1].className = rate === settings.rate3 ? 'btn-rate active' : 'btn-rate';
+    }
+
+    function setHours(h) { document.getElementById('inputHours').value = h; }
+
+    function saveRecord() {
+        const hours = parseFloat(document.getElementById('inputHours').value);
+        if (isNaN(hours) || hours <= 0) { alert('请输入正确的时长！'); return; }
+        scheduleData[currentEditDate] = { type: currentType, rate: currentType === 'ot' ? currentRate : 0, hours: hours };
+        saveData();
+        refreshCalendarUI();
+        closeAllModals();
+    }
+
+    function deleteRecord() {
+        if (confirm('确定要删除这天的记录吗？')) {
+            delete scheduleData[currentEditDate];
+            saveData();
+            refreshCalendarUI();
+            closeAllModals();
+        }
+    }
+
+    function refreshCalendarUI() {
+        document.querySelectorAll('.day-cell').forEach(cell => {
+            if (cell.classList.contains('empty')) return;
+            const dateStr = cell.id.replace('cell-', '');
+            const dayNum = parseInt(dateStr.split('-')[2]);
+            const [year, month] = dateStr.split('-').map(Number);
+            const dayOfWeek = new Date(year, month - 1, dayNum).getDay();
+            const hInfo = HOLIDAY_DATA[dateStr];
+            
+            cell.className = 'day-cell' + (dayNum >= 26 ? ' next-cycle' : '');
+            
+            if (hInfo && hInfo.isWork) cell.classList.add('holiday-work');
+            else if (hInfo && hInfo.isOff) cell.classList.add('holiday');
+            else if (dayOfWeek === 0 || dayOfWeek === 6) cell.classList.add('weekend');
+
+            let innerHTML = `<span>${dayNum}</span>`;
+            if (hInfo && hInfo.isOff) innerHTML += `<span class="day-tag tag-off">休</span>`;
+            if (hInfo && hInfo.isWork) innerHTML += `<span class="day-tag tag-work">班</span>`;
+            if (hInfo && hInfo.is3x && hInfo.name) innerHTML += `<div class="festival-name">${hInfo.name}</div>`;
+
+            const record = scheduleData[dateStr];
+            if (record && record.hours > 0) {
+                cell.classList.add(record.type === 'ot' ? 'type-ot' : 'type-leave');
+                innerHTML += `<div class="day-hours">${record.hours}h</div>`;
+            }
+            cell.innerHTML = innerHTML;
+        });
+        updateReconPanels();
+    }
+
+    // --- 核心：内嵌对账渲染 ---
+    function updateReconPanels() {
+        document.querySelectorAll('.recon-panel').forEach(el => el.innerHTML = '');
+
+        const cycles = {}; 
+        const rates = getHourlyRates();
+        const sortedDates = Object.keys(scheduleData).sort();
+
+        for (const date of sortedDates) {
+            const cycleMonth = getCycleMonth(date);
+            if (!cycles[cycleMonth]) cycles[cycleMonth] = { days15: [], days3: [], daysLeave: [], h15: 0, h3: 0, hLeave: 0 };
+            
+            const rec = scheduleData[date];
+            const shortDate = `${parseInt(date.split('-')[1])}月${parseInt(date.split('-')[2])}日`;
+            
+            if (rec.type === 'ot') {
+                if (rec.rate === settings.rate1) { cycles[cycleMonth].h15 += rec.hours; cycles[cycleMonth].days15.push(`${shortDate}(${rec.hours}h)`); }
+                else { cycles[cycleMonth].h3 += rec.hours; cycles[cycleMonth].days3.push(`${shortDate}(${rec.hours}h)`); }
+            } else {
+                cycles[cycleMonth].hLeave += rec.hours;
+                cycles[cycleMonth].daysLeave.push(`${shortDate}(${rec.hours}h)`);
+            }
+        }
+
+        for (const cycleMonth in cycles) {
+            const data = cycles[cycleMonth];
+            const info = getCycleDetails(cycleMonth);
+            
+            let final15 = data.h15, final3 = data.h3, remainLeave = data.hLeave;
+            if (remainLeave >= final15) {
+                remainLeave -= final15; final15 = 0;
+                if (remainLeave > 0) final3 = Math.max(0, final3 - remainLeave);
+            } else { final15 -= remainLeave; }
+
+            const totalRecordedHours = data.h15 + data.h3; 
+            const totalPay = (final15 * rates.r1) + (final3 * rates.r3);
+
+            let detailStr = '';
+            if (data.days15.length) detailStr += `<div style="color:var(--ot-color)">🟠 平时(1.5倍): ${data.days15.join('、')}</div>`;
+            if (data.days3.length) detailStr += `<div style="color:var(--danger)">🔴 节假日(3倍): ${data.days3.join('、')}</div>`;
+            if (data.daysLeave.length) detailStr += `<div style="color:var(--leave-color)">🟢 调休: ${data.daysLeave.join('、')}</div>`;
+
+            const compData = companyData[cycleMonth] || { actualHours: '', actualPay: '' };
+
+            let calcParts = [];
+            if (final15 > 0) calcParts.push(`${final15}h × ${rates.r1.toFixed(2)}`);
+            if (final3 > 0) calcParts.push(`${final3}h × ${rates.r3.toFixed(2)}`);
+            let totalFormulaStr = calcParts.length > 0 ? calcParts.join(' + ') + ` = <span style="font-size:16px;">${totalPay.toFixed(2)}</span> 元` : `0.00 元`;
+
+            const panelHtml = `
+                <div class="recon-header">
+                    <div>🗓️ <b>${info.name}</b> (${info.start} ~ ${info.end})</div>
+                    <span>随 ${info.salaryStr} 发</span>
+                </div>
+                <div class="recon-details">${detailStr}</div>
+                
+                <div class="data-grid">
+                    <div class="data-cell">
+                        <span class="label">平时(1.5倍)应发</span>
+                        <span class="value" style="color:var(--ot-color)">${final15} h</span>
+                    </div>
+                    <div class="data-cell">
+                        <span class="label">节假日(3倍)应发</span>
+                        <span class="value" style="color:var(--danger)">${final3} h</span>
+                    </div>
+                </div>
+                <div style="font-size:12px; color:#888; margin-bottom:12px; text-align:right;">
+                    (原记录: ${totalRecordedHours}h，使用调休抵扣${data.hLeave}h)
+                </div>
+
+                <div class="recon-row">
+                    <span>公司记录:</span>
+                    <input type="number" id="compHours-${cycleMonth}" value="${compData.actualHours}" placeholder="输入HR说的总时长" oninput="checkHoursDiff('${cycleMonth}', ${final15 + final3})">
+                    <div id="hoursMsg-${cycleMonth}" class="recon-msg"></div>
+                </div>
+
+                <div style="margin-top:15px; margin-bottom:12px; font-size:13px; padding:12px; background:#fff; border-radius:8px; border:1px solid #eee;">
+                    <div style="display:flex; justify-content:space-between; margin-bottom:8px;">
+                        <span style="color:var(--ot-color);">🟠 1.5倍计算：</span>
+                        <span>${final15} h × ${rates.r1.toFixed(2)} = <b>${(final15 * rates.r1).toFixed(2)}</b> 元</span>
+                    </div>
+                    <div style="display:flex; justify-content:space-between; margin-bottom:8px;">
+                        <span style="color:var(--danger);">🔴 3倍计算：</span>
+                        <span>${final3} h × ${rates.r3.toFixed(2)} = <b>${(final3 * rates.r3).toFixed(2)}</b> 元</span>
+                    </div>
+                    <div style="display:flex; justify-content:space-between; align-items:center; border-top:1px dashed #ccc; padding-top:8px; margin-top:8px; color:var(--danger); font-weight:bold; font-size:14px;">
+                        <span>理论总计：</span>
+                        <span>${totalFormulaStr}</span>
+                    </div>
+                </div>
+                
+                <div class="recon-row">
+                    <span>实发金额:</span>
+                    <input type="number" id="actualPay-${cycleMonth}" value="${compData.actualPay}" placeholder="输入实发钱数" oninput="checkPayDiff('${cycleMonth}', ${totalPay}, ${final15 + final3})">
+                    <div id="payMsg-${cycleMonth}" class="recon-msg"></div>
+                </div>
+
+                <div class="reversed-row" id="revRow-${cycleMonth}" style="display: none;">
+                    <span style="font-size:13px; color:#555;">折合工时：</span>
+                    <span class="reversed-val" id="reversedHours-${cycleMonth}">0 小时</span>
+                    <span class="reversed-msg" id="reverseMsg-${cycleMonth}"></span>
+                </div>
+            `;
+
+            let targetCardMonth = cycleMonth;
+            const targetPanel = document.getElementById(`recon-${targetCardMonth}`);
+            if (targetPanel) {
+                targetPanel.innerHTML = panelHtml;
+                checkHoursDiff(cycleMonth, final15 + final3);
+                checkPayDiff(cycleMonth, totalPay, final15 + final3);
+            }
+        }
+        
+        document.querySelectorAll('.recon-panel').forEach(panel => {
+            if (panel.innerHTML.trim() === '') {
+                panel.innerHTML = `<div class="recon-empty">💤 本月暂无加班/调休记录</div>`;
+            }
+        });
+    }
+
+    function checkHoursDiff(cycleMonth, theoryHours) {
+        const comp = parseFloat(document.getElementById(`compHours-${cycleMonth}`).value) || 0;
+        const msgEl = document.getElementById(`hoursMsg-${cycleMonth}`);
+        
+        if (!companyData[cycleMonth]) companyData[cycleMonth] = {};
+        companyData[cycleMonth].actualHours = comp;
+        saveCompanyData();
+
+        if (comp === 0) { msgEl.style.display = 'none'; return; }
+        msgEl.style.display = 'block'; msgEl.className = 'recon-msg';
+
+        const diff = theoryHours - comp;
+        if (Math.abs(diff) < 0.1) { msgEl.classList.add('recon-ok'); msgEl.innerHTML = `✅ 一致`; }
+        else if (diff > 0) { msgEl.classList.add('recon-danger'); msgEl.innerHTML = `🚨 少记 ${diff.toFixed(1)}h`; }
+        else { msgEl.classList.add('recon-warn'); msgEl.innerHTML = `⚠️ 多记 ${Math.abs(diff).toFixed(1)}h`; }
+    }
+
+    function checkPayDiff(cycleMonth, theoryPay, theoryHours) {
+        const actual = parseFloat(document.getElementById(`actualPay-${cycleMonth}`).value) || 0;
+        const msgEl = document.getElementById(`payMsg-${cycleMonth}`);
+        const revRowEl = document.getElementById(`revRow-${cycleMonth}`);
+        const revHoursEl = document.getElementById(`reversedHours-${cycleMonth}`);
+        const revMsgEl = document.getElementById(`reverseMsg-${cycleMonth}`);
+        
+        if (!companyData[cycleMonth]) companyData[cycleMonth] = {};
+        companyData[cycleMonth].actualPay = actual;
+        saveCompanyData();
+
+        if (actual === 0) { 
+            msgEl.style.display = 'none'; 
+            revRowEl.style.display = 'none';
+            return; 
+        }
+        
+        msgEl.style.display = 'block'; msgEl.className = 'recon-msg';
+        const diff = theoryPay - actual;
+        if (Math.abs(diff) <= 1.00) { msgEl.classList.add('recon-ok'); msgEl.innerHTML = `✅ 一致`; }
+        else if (diff > 1.00) { msgEl.classList.add('recon-danger'); msgEl.innerHTML = `🚨 少发 ${diff.toFixed(2)}元`; }
+        else { msgEl.classList.add('recon-warn'); msgEl.innerHTML = `⚠️ 多发 ${Math.abs(diff).toFixed(2)}元`; }
+
+        if (theoryHours > 0 && theoryPay > 0) {
+            revRowEl.style.display = 'flex';
+            const avgRate = theoryPay / theoryHours; 
+            const reversedHours = actual / avgRate;  
+            revHoursEl.innerHTML = `${reversedHours.toFixed(2)} h`;
+            
+            const compHours = parseFloat(document.getElementById(`compHours-${cycleMonth}`).value) || 0;
+            if (compHours > 0) {
+                revMsgEl.style.display = 'inline-block';
+                revMsgEl.className = 'reversed-msg';
+                const diffH = reversedHours - compHours;
+                
+                if (Math.abs(diffH) < 0.5) {
+                    revMsgEl.classList.add('rev-ok'); revMsgEl.innerHTML = `✅ 与记录一致`;
+                } else if (diffH > 0.5) {
+                    revMsgEl.classList.add('rev-bad'); revMsgEl.innerHTML = `🚨 金额多算 ${diffH.toFixed(1)}h`;
+                } else {
+                    revMsgEl.classList.add('rev-bad'); revMsgEl.innerHTML = `⚠️ 金额少算 ${Math.abs(diffH).toFixed(1)}h`;
+                }
+            } else { revMsgEl.style.display = 'none'; }
+        } else { revRowEl.style.display = 'none'; }
+    }
+
+    // --- 顶部菜单操作 ---
+    function toggleLayout() {
+        const wrapper = document.getElementById('calendarWrapper');
+        const navL = document.getElementById('navLeft');
+        const navR = document.getElementById('navRight');
+        const btn = document.getElementById('layoutBtn');
+        
+        if (settings.layout === 'vertical') {
+            settings.layout = 'horizontal';
+            wrapper.className = 'calendar-wrapper horizontal';
+            navL.style.display = 'flex'; navR.style.display = 'flex';
+            btn.textContent = '🔄 切换纵排';
+        } else {
+            settings.layout = 'vertical';
+            wrapper.className = 'calendar-wrapper vertical';
+            navL.style.display = 'none'; navR.style.display = 'none';
+            btn.textContent = '🔄 切换横排';
+            wrapper.scrollLeft = 0;
+        }
+        saveSettingsData();
+    }
+
+    function scrollCalendar(direction) {
+        const wrapper = document.getElementById('calendarWrapper');
+        if (settings.layout !== 'horizontal') return;
+        const width = wrapper.clientWidth;
+        wrapper.scrollBy({ left: direction * width, behavior: 'smooth' });
+    }
+
+    // --- 设置与导出 ---
+    function openSettingsModal() {
+        document.getElementById('setRate1').value = settings.rate1;
+        document.getElementById('setRate3').value = settings.rate3;
+        document.getElementById('setPayCycle').value = settings.payCycle;
+        document.getElementById('setPayDay').value = settings.payDay;
+        document.getElementById('setStartDay').value = settings.startDay;
+        document.getElementById('setStartMonth').value = settings.rangeStart;
+        document.getElementById('setEndMonth').value = settings.rangeEnd;
+
+        document.getElementById('overlay').classList.add('active');
+        document.getElementById('settingsModal').classList.add('active');
+    }
+
+    function saveSettings() {
+        settings.rate1 = parseFloat(document.getElementById('setRate1').value) || 1.5;
+        settings.rate3 = parseFloat(document.getElementById('setRate3').value) || 3;
+        settings.payCycle = parseInt(document.getElementById('setPayCycle').value) || 2;
+        settings.payDay = parseInt(document.getElementById('setPayDay').value) || 8;
+        settings.startDay = parseInt(document.getElementById('setStartDay').value);
+        
+        const sMonth = document.getElementById('setStartMonth').value;
+        const eMonth = document.getElementById('setEndMonth').value;
+        
+        if (sMonth && eMonth) {
+            if (sMonth > eMonth) { alert('起始月份不能大于结束月份！'); return; }
+            settings.rangeStart = sMonth;
+            settings.rangeEnd = eMonth;
+        }
+        
+        saveSettingsData();
+        initCalendars();
+        closeAllModals();
+    }
+
+    function openMonthExportModal(monthStr) {
+        const panel = document.getElementById(`recon-${monthStr}`);
+        if (panel && panel.querySelector('.recon-empty')) { alert('本月暂无记录，无法导出。'); return; }
+        
+        currentExportMonth = monthStr;
+        const info = getCycleDetails(monthStr);
+        document.getElementById('monthExportTitle').textContent = `${info.name} (${info.start} ~ ${info.end})`;
+        
+        document.getElementById('overlay').classList.add('active');
+        document.getElementById('monthExportModal').classList.add('active');
+    }
+
+    function exportSingleMonthTxt() {
+        const cycleMonth = currentExportMonth;
+        const info = getCycleDetails(cycleMonth);
+        const rates = getHourlyRates();
+        let h15 = 0, h3 = 0, hLeave = 0;
+        let days15 = [], days3 = [], daysLeave = [];
+        const sortedDates = Object.keys(scheduleData).sort();
+        
+        for (const date of sortedDates) {
+            if (getCycleMonth(date) === cycleMonth) {
+                const rec = scheduleData[date];
+                const shortDate = `${parseInt(date.split('-')[1])}月${parseInt(date.split('-')[2])}日`;
+                if (rec.type === 'ot') {
+                    if (rec.rate === settings.rate1) { h15 += rec.hours; days15.push(`${shortDate}(${rec.hours}h)`); }
+                    else { h3 += rec.hours; days3.push(`${shortDate}(${rec.hours}h)`); }
+                } else {
+                    hLeave += rec.hours;
+                    daysLeave.push(`${shortDate}(${rec.hours}h)`);
+                }
+            }
+        }
+        
+        let final15 = h15, final3 = h3, remainLeave = hLeave;
+        if (remainLeave >= final15) { remainLeave -= final15; final15 = 0; if (remainLeave > 0) final3 = Math.max(0, final3 - remainLeave); } else { final15 -= remainLeave; }
+
+        const totalRecordedHours = h15 + h3;
+        const totalPay = (final15 * rates.r1) + (final3 * rates.r3);
+        let calcParts = [];
+        if (final15 > 0) calcParts.push(`${final15}h × ${rates.r1.toFixed(2)}`);
+        if (final3 > 0) calcParts.push(`${final3}h × ${rates.r3.toFixed(2)}`);
+        let calcStr = calcParts.length > 0 ? calcParts.join(' + ') : '0';
+        const compData = companyData[cycleMonth] || { actualHours: '', actualPay: '' };
+
+        let txt = `【${info.name} 导出数据】\n`;
+        txt += `统计周期：${info.start} ~ ${info.end}\n`;
+        txt += `发放时间：随 ${info.salaryStr} 发放\n`;
+        txt += `=========================\n\n`;
+        txt += `📋 原始记录明细：\n`;
+        if (days15.length) txt += `🟠 平时(1.5倍)：${days15.join('、')}\n`;
+        if (days3.length) txt += `🔴 节假日(3倍)：${days3.join('、')}\n`;
+        if (daysLeave.length) txt += `🟢 调休：${daysLeave.join('、')}\n`;
+        if (!days15.length && !days3.length && !daysLeave.length) txt += `无\n`;
+        txt += `\n📊 核对表：\n`;
+        txt += `原记录：${totalRecordedHours} h (使用调休抵扣 ${hLeave} h)\n`;
+        txt += `平时(1.5倍)应发：${final15} h\n`;
+        txt += `节假日(3倍)应发：${final3} h\n`;
+        txt += `理论总计：${calcStr} = ${totalPay.toFixed(2)} 元\n\n`;
+        txt += `🔍 对账结果：\n`;
+        txt += `公司记录总时长：${compData.actualHours || '未填写'} h\n`;
+        if (compData.actualHours) {
+            const diffH = (final15 + final3) - parseFloat(compData.actualHours);
+            if (Math.abs(diffH) < 0.1) txt += `  -> ✅ 时长一致\n`;
+            else if (diffH > 0) txt += `  -> 🚨 公司少记 ${diffH.toFixed(1)} h\n`;
+            else txt += `  -> ⚠️ 公司多记 ${Math.abs(diffH).toFixed(1)} h\n`;
+        }
+        txt += `实发金额：${compData.actualPay || '未填写'} 元\n`;
+        if (compData.actualPay) {
+            const diffP = totalPay - parseFloat(compData.actualPay);
+            if (Math.abs(diffP) <= 1) txt += `  -> ✅ 金额一致\n`;
+            else if (diffP > 1) txt += `  -> 🚨 公司少发 ${diffP.toFixed(2)} 元\n`;
+            else txt += `  -> ⚠️ 公司多发 ${Math.abs(diffP).toFixed(2)} 元\n`;
+            if ((final15 + final3) > 0) {
+                const avgRate = totalPay / (final15 + final3);
+                const revH = parseFloat(compData.actualPay) / avgRate;
+                txt += `  -> 实发折合工时：${revH.toFixed(2)} h\n`;
+            }
+        }
+        downloadTxtFile(txt, `${info.name}_核对表.txt`);
+        closeAllModals();
+    }
+
+    function exportSingleMonthPdf(btn) {
+        if (!window.html2pdf) { alert('PDF 组件尚未加载完毕，请检查网络。'); return; }
+        const originalText = btn.innerHTML;
+        btn.innerHTML = '⏳ 生成中...';
+        btn.disabled = true;
+
+        const monthStr = currentExportMonth;
+        const card = document.getElementById(`card-${monthStr}`);
+        const clone = card.cloneNode(true);
+        const actions = clone.querySelector('.title-actions');
+        if (actions) actions.remove();
+
+        const inputs = clone.querySelectorAll('input');
+        inputs.forEach(input => {
+            const val = input.value || '0';
+            const span = document.createElement('span');
+            span.textContent = ` ${val} `;
+            span.style.fontWeight = 'bold'; span.style.fontSize = '15px'; span.style.color = '#333'; span.style.borderBottom = '1px solid #999'; span.style.padding = '0 10px';
+            input.parentNode.replaceChild(span, input);
+        });
+
+        clone.style.boxShadow = 'none'; clone.style.border = '1px solid #ddd'; clone.style.marginBottom = '0'; clone.style.width = '800px'; 
+
+        const wrapper = document.createElement('div');
+        wrapper.style.padding = '20px'; wrapper.style.background = '#f0f2f5'; wrapper.style.width = '840px';
+        wrapper.appendChild(clone);
+        document.body.appendChild(wrapper);
+
+        const opt = {
+            margin: [10, 10, 10, 10], filename: `加班对账_${monthStr}.pdf`,
+            image: { type: 'jpeg', quality: 0.98 }, html2canvas: { scale: 2, useCORS: true, scrollY: 0 },
+            jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+        };
+
+        html2pdf().set(opt).from(wrapper).save().then(() => {
+            document.body.removeChild(wrapper);
+            btn.innerHTML = originalText; btn.disabled = false;
+            closeAllModals();
+        }).catch(err => {
+            console.error('PDF Error:', err); alert('PDF 生成失败：' + err.message);
+            document.body.removeChild(wrapper); btn.innerHTML = originalText; btn.disabled = false;
+        });
+    }
+
+    function deleteMonthData(monthStr) {
+        if (!confirm(`⚠️ 确定要删除 ${monthStr} 的所有自然月记录吗？`)) return;
+        for (let date in scheduleData) { if (date.startsWith(monthStr)) delete scheduleData[date]; }
+        saveData();
+        refreshCalendarUI();
+    }
+
+    // --- 报告与全局数据 ---
+    function downloadTxtFile(content, filename) {
+        const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url; a.download = filename;
+        document.body.appendChild(a); a.click(); document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    }
+
+    function generateReportText() {
+        let reportStr = "【加班费详细对账总报告】\n";
+        reportStr += `费率设置: 平时 ${settings.rate1}倍, 节假日 ${settings.rate3}倍\n`;
+        reportStr += `发放设置: 结算后 ${settings.payCycle} 个月发, 发薪日 ${settings.payDay} 号\n`;
+        reportStr += "=======================\n\n";
+
+        const cycles = {};
+        const rates = getHourlyRates();
+        const sortedDates = Object.keys(scheduleData).sort();
+
+        for (const date of sortedDates) {
+            const cycleMonth = getCycleMonth(date);
+            if (!cycles[cycleMonth]) cycles[cycleMonth] = { records: [], h15: 0, h3: 0, hLeave: 0 };
+            const rec = scheduleData[date];
+            cycles[cycleMonth].records.push({ date, ...rec });
+            if (rec.type === 'ot') {
+                if (rec.rate === settings.rate1) cycles[cycleMonth].h15 += rec.hours;
+                else cycles[cycleMonth].h3 += rec.hours;
+            } else { cycles[cycleMonth].hLeave += rec.hours; }
+        }
+
+        const sortedCycles = Object.keys(cycles).sort();
+        let grandTotalTheoryPay = 0;
+        let grandTotalActualPay = 0;
+
+        if (sortedCycles.length === 0) {
+            reportStr += "暂无任何记录。";
+        } else {
+            sortedCycles.forEach(cycleMonth => {
+                const data = cycles[cycleMonth];
+                const info = getCycleDetails(cycleMonth);
+                reportStr += `【${info.name}】 (${info.start} ~ ${info.end}) 随 ${info.salaryStr} 发放\n`;
+                
+                let otList = [], leaveList = [];
+                data.records.forEach(r => {
+                    const dStr = `${parseInt(r.date.split('-')[1])}月${parseInt(r.date.split('-')[2])}日`;
+                    if (r.type === 'ot') otList.push(`${dStr} 加班${r.hours}小时 (${r.rate}倍)`);
+                    else leaveList.push(`${dStr} 调休${r.hours}小时`);
+                });
+
+                if (otList.length > 0) reportStr += `  🔸 加班记录：\n    - ${otList.join('\n    - ')}\n`;
+                if (leaveList.length > 0) reportStr += `  🔹 调休记录：\n    - ${leaveList.join('\n    - ')}\n`;
+
+                let final15 = data.h15, final3 = data.h3, remainLeave = data.hLeave;
+                if (remainLeave >= final15) { remainLeave -= final15; final15 = 0; if (remainLeave > 0) final3 = Math.max(0, final3 - remainLeave); } else { final15 -= remainLeave; }
+                
+                const totalRecordedHours = data.h15 + data.h3;
+                const totalActualHoursAfterDeduct = final15 + final3;
+                const theoryPay = (final15 * rates.r1) + (final3 * rates.r3);
+                grandTotalTheoryPay += theoryPay;
+
+                let calcParts = [];
+                if (final15 > 0) calcParts.push(`${final15}h × ${rates.r1.toFixed(2)}`);
+                if (final3 > 0) calcParts.push(`${final3}h × ${rates.r3.toFixed(2)}`);
+                let calcStr = calcParts.length > 0 ? calcParts.join(' + ') : '0';
+
+                reportStr += `  📊 核对表：\n`;
+                reportStr += `    原记录：${totalRecordedHours} h (使用调休抵扣${data.hLeave} h)\n`;
+                reportStr += `    平时(1.5倍)应发：${final15} h\n`;
+                reportStr += `    节假日(3倍)应发：${final3} h\n`;
+                reportStr += `    理论总计：${calcStr} = ${theoryPay.toFixed(2)} 元\n`;
+
+                const compData = companyData[cycleMonth] || { actualHours: '', actualPay: '' };
+                if (compData.actualHours !== '' || compData.actualPay !== '') {
+                    if (compData.actualHours !== '') {
+                        const diffH = totalActualHoursAfterDeduct - parseFloat(compData.actualHours);
+                        let hStatus = Math.abs(diffH) < 0.1 ? '✅ 一致' : (diffH > 0 ? `🚨 少记 ${diffH.toFixed(1)} h` : `⚠️ 多记 ${Math.abs(diffH).toFixed(1)} h`);
+                        reportStr += `    公司记录总时长：${compData.actualHours} h (${hStatus})\n`;
+                    }
+                    if (compData.actualPay !== '') {
+                        const actualPayNum = parseFloat(compData.actualPay) || 0;
+                        grandTotalActualPay += actualPayNum;
+                        const diffP = theoryPay - actualPayNum;
+                        let pStatus = Math.abs(diffP) <= 1 ? '✅ 一致' : (diffP > 1 ? `🚨 少发 ${diffP.toFixed(2)} 元` : `⚠️ 多发 ${Math.abs(diffP).toFixed(2)} 元`);
+                        reportStr += `    实发金额：${actualPayNum.toFixed(2)} 元 (${pStatus})\n`;
+                    }
+                } else { grandTotalActualPay += 0; }
+                reportStr += `------------------------\n\n`;
+            });
+
+            reportStr += `🌟 【总计】\n`;
+            reportStr += `  理论应发总额：${grandTotalTheoryPay.toFixed(2)} 元\n`;
+            reportStr += `  公司实发总额：${grandTotalActualPay.toFixed(2)} 元\n`;
+            const grandDiff = grandTotalTheoryPay - grandTotalActualPay;
+            let grandStatus = grandDiff > 1 ? '🚨 公司总计少发' : (grandDiff < -1 ? '⚠️ 公司总计多发' : '✅ 基本一致');
+            reportStr += `  总计差异：${Math.abs(grandDiff).toFixed(2)} 元 (${grandStatus})\n`;
+        }
+        return reportStr;
+    }
+
+    function openReportModal() {
+        document.getElementById('reportText').textContent = generateReportText();
+        document.getElementById('overlay').classList.add('active');
+        document.getElementById('reportModal').classList.add('active');
+    }
+
+    function copyReport() {
+        navigator.clipboard.writeText(document.getElementById('reportText').textContent)
+            .then(() => alert('报告已复制！')).catch(() => alert('复制失败，请手动选择。'));
+    }
+    function downloadReportTxt() { downloadTxtFile(generateReportText(), '加班对账总报告.txt'); }
+    
+    function openExportChoice() {
+        document.getElementById('overlay').classList.add('active');
+        document.getElementById('exportChoiceModal').classList.add('active');
+    }
+    
+    function exportAllTxt() {
+        closeAllModals();
+        downloadTxtFile(generateReportText(), `加班数据_${new Date().getTime()}.txt`);
+    }
+    
+    function exportAllPdf() {
+        closeAllModals();
+        downloadReportPdf(null);
+    }
+
+    function downloadReportPdf(btn) {
+        if (!window.html2pdf) { alert('PDF 组件尚未加载完毕，请检查网络后刷新重试。'); return; }
+        let originalText = '';
+        if (btn) { originalText = btn.innerHTML; btn.innerHTML = '⏳ 生成中...'; btn.disabled = true; }
+
+        const pdfWrapper = document.createElement('div');
+        pdfWrapper.id = 'pdf-export-container';
+        pdfWrapper.style.width = '800px'; pdfWrapper.style.background = '#fff'; pdfWrapper.style.padding = '30px';
+        
+        const title = document.createElement('h2');
+        title.textContent = '加班费详细对账总报告';
+        title.style.textAlign = 'center'; title.style.color = '#2c3e50'; title.style.marginBottom = '20px'; title.style.borderBottom = '2px solid #3498db'; title.style.paddingBottom = '10px';
+        pdfWrapper.appendChild(title);
+
+        const cards = document.querySelectorAll('.month-card');
+        let hasData = false;
+
+        cards.forEach(card => {
+            const panel = card.querySelector('.recon-panel');
+            if (panel && !panel.querySelector('.recon-empty')) {
+                hasData = true;
+                const clone = card.cloneNode(true);
+                const actions = clone.querySelector('.title-actions');
+                if (actions) actions.remove();
+                
+                const inputs = clone.querySelectorAll('input');
+                inputs.forEach(input => {
+                    const val = input.value || '0';
+                    const span = document.createElement('span');
+                    span.textContent = ` ${val} `;
+                    span.style.fontWeight = 'bold'; span.style.fontSize = '15px'; span.style.color = '#333'; span.style.borderBottom = '1px solid #999'; span.style.padding = '0 10px';
+                    input.parentNode.replaceChild(span, input);
+                });
+
+                clone.style.boxShadow = 'none'; clone.style.border = '1px solid #ddd'; clone.style.marginBottom = '20px'; clone.style.pageBreakInside = 'avoid';
+                pdfWrapper.appendChild(clone);
+            }
+        });
+
+        if (!hasData) {
+            alert('暂无任何加班记录，无法生成 PDF。');
+            if (btn) { btn.innerHTML = originalText; btn.disabled = false; }
+            return;
+        }
+
+        const reportText = generateReportText();
+        const totalIndex = reportText.indexOf('🌟 【总计】');
+        if (totalIndex !== -1) {
+            const totalStr = reportText.substring(totalIndex);
+            const totalDiv = document.createElement('div');
+            totalDiv.innerHTML = `<pre style="font-family: inherit; font-size:14px; line-height:1.6; background:#f9f9f9; padding:15px; border-radius:8px; border:1px solid #eee; white-space: pre-wrap;">${totalStr}</pre>`;
+            pdfWrapper.appendChild(totalDiv);
+        }
+
+        document.body.appendChild(pdfWrapper);
+
+        const opt = {
+            margin: [10, 10, 10, 10], filename: `加班对账报告_${new Date().getTime()}.pdf`,
+            image: { type: 'jpeg', quality: 0.98 }, html2canvas: { scale: 2, useCORS: true, scrollY: 0 },
+            jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+        };
+
+        html2pdf().set(opt).from(pdfWrapper).save().then(() => {
+            document.body.removeChild(pdfWrapper);
+            if (btn) { btn.innerHTML = originalText; btn.disabled = false; }
+        }).catch(err => {
+            console.error('PDF Error:', err); alert('PDF 生成失败：' + err.message);
+            document.body.removeChild(pdfWrapper); if (btn) { btn.innerHTML = originalText; btn.disabled = false; }
+        });
+    }
+
+    // --- 分享与存储 ---
+    let currentShareLink = "";
+    function openShareModal() {
+        const payload = { s: scheduleData, c: companyData, st: settings };
+        const compressed = LZString.compressToEncodedURIComponent(JSON.stringify(payload));
+        currentShareLink = `${window.location.origin + window.location.pathname}?sync=${compressed}`;
+        
+        const qrcodeContainer = document.getElementById('qrcode-container');
+        qrcodeContainer.innerHTML = ""; 
+        new QRCode(qrcodeContainer, { text: currentShareLink, width: 200, height: 200, correctLevel : QRCode.CorrectLevel.L });
+        document.getElementById('overlay').classList.add('active');
+        document.getElementById('shareModal').classList.add('active');
+    }
+
+    function copyShareLink() {
+        if(!currentShareLink) return;
+        navigator.clipboard.writeText(currentShareLink).then(() => alert('分享链接已复制！')).catch(() => alert('复制失败，请截图发送。'));
+    }
+
+    function saveData() { localStorage.setItem('calendarOvertimeData_v7', JSON.stringify(scheduleData)); }
+    function saveCompanyData() { localStorage.setItem('calendarCompanyData_v7', JSON.stringify(companyData)); }
+    function saveSettingsData() { localStorage.setItem('calendarSettings_v7', JSON.stringify(settings)); }
+    
+    function loadData() {
+        const saved = localStorage.getItem('calendarOvertimeData_v7');
+        const savedComp = localStorage.getItem('calendarCompanyData_v7');
+        const savedSet = localStorage.getItem('calendarSettings_v7');
+        if (saved) { try { scheduleData = JSON.parse(saved); } catch(e) {} }
+        if (savedComp) { try { companyData = JSON.parse(savedComp); } catch(e) {} }
+        if (savedSet) { 
+            try { 
+                settings = { ...settings, ...JSON.parse(savedSet) }; 
+                if (settings.layout === 'horizontal') {
+                    document.getElementById('calendarWrapper').className = 'calendar-wrapper horizontal';
+                    document.getElementById('navLeft').style.display = 'flex'; document.getElementById('navRight').style.display = 'flex';
+                    document.getElementById('layoutBtn').textContent = '🔄 切换纵排';
+                }
+            } catch(e) {} 
+        }
+    }
+
+    function checkSyncParam() {
+        const syncData = new URLSearchParams(window.location.search).get('sync');
+        if (syncData) {
+            try {
+                const payload = JSON.parse(LZString.decompressFromEncodedURIComponent(syncData));
+                if (payload.s && confirm("检测到分享数据！确定覆盖当前设备吗？")) {
+                    scheduleData = payload.s; companyData = payload.c || {};
+                    if (payload.st) settings = { ...settings, ...payload.st };
+                    saveData(); saveCompanyData(); saveSettingsData();
+                    window.history.replaceState({}, document.title, window.location.pathname);
+                    window.location.reload();
+                }
+            } catch(e) {}
+        }
+    }
+
+    function closeAllModals() { document.querySelectorAll('.overlay, .modal').forEach(el => el.classList.remove('active')); }
+
+    document.addEventListener('DOMContentLoaded', () => {
+        loadData();       
+        initCalendars();
+        checkSyncParam(); 
+    });
+</script>
+</body>
+</html>
